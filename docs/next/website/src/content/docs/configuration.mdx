@@ -279,6 +279,16 @@ The sidebar is the main Herdr dashboard. Search `ui.` in the [Config reference](
 
 Set `tab_bar_position = "bottom"` under `[ui]` to place the desktop tab row below the terminal panes. Prefix, Navigate, Copy, and Resize mode bars temporarily replace the bottom tab row while active. The default is `"top"`.
 
+A tab you have not renamed already shows its jump number, because the number is its name. Rename it and the number is replaced. Turn on `show_tab_numbers` to keep the number visible on named tabs too, drawn in the theme accent color so it reads as a jump target for the `prefix+1..9` bindings:
+
+```toml
+[ui]
+show_tab_numbers = true
+tab_number_start = 1
+```
+
+`tab_number_start` accepts `0` or `1`; any other value falls back to `1` with a startup warning. Note that the numbers follow tab position, so they shift when you reorder or close tabs, and only `1` through `9` are reachable through the default indexed bindings.
+
 Agent status uses compact colored dots by default. To distinguish blocked, working, done, idle, and unknown states by shape as well as color, choose **distinct symbols** in Settings or configure:
 
 ```toml

@@ -884,6 +884,12 @@ pub struct UiConfig {
     pub hide_tab_bar_when_single_tab: bool,
     /// Desktop tab row placement. Default: top.
     pub tab_bar_position: TabBarPositionConfig,
+    /// Show each tab's jump number in the tab row, even when the tab has a
+    /// custom name. Default: false.
+    pub show_tab_numbers: bool,
+    /// First tab's jump number when `show_tab_numbers` is on. Only 0 or 1 are
+    /// accepted; other values fall back to 1 with a diagnostic. Default: 1.
+    pub tab_number_start: u8,
     /// Agent sidebar ordering. Saved values are "spaces" or "priority". Default: "spaces".
     pub agent_panel_sort: AgentPanelSortConfig,
     /// Retired setting that Herdr wrote before the workspace filter was removed.
@@ -1099,6 +1105,8 @@ impl Default for UiConfig {
             show_agent_labels_on_pane_borders: false,
             hide_tab_bar_when_single_tab: false,
             tab_bar_position: TabBarPositionConfig::Top,
+            show_tab_numbers: false,
+            tab_number_start: 1,
             agent_panel_sort: AgentPanelSortConfig::Spaces,
             _legacy_agent_panel_scope: None,
             status_indicators: StatusIndicatorStyle::Dots,
@@ -1119,6 +1127,25 @@ impl UiConfig {
 
     pub fn right_click_passthrough_modifiers(&self) -> Option<KeyModifiers> {
         self.right_click_passthrough_modifier.modifiers()
+    }
+
+    /// Validated first tab number. Only 0 and 1 are meaningful, because the
+    /// numbers exist to mirror the `1..9` indexed jump bindings.
+    pub fn tab_number_start(&self) -> u8 {
+        if self.tab_number_start <= 1 {
+            self.tab_number_start
+        } else {
+            1
+        }
+    }
+
+    pub(crate) fn invalid_tab_number_start_diagnostic(&self) -> Option<String> {
+        (self.tab_number_start > 1).then(|| {
+            format!(
+                "invalid config value: ui.tab_number_start = {}; expected 0 or 1",
+                self.tab_number_start
+            )
+        })
     }
 }
 

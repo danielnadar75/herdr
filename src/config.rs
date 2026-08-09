@@ -75,6 +75,7 @@ impl Config {
             .chain(self.theme.diagnostics())
             .chain(self.ui.sound.diagnostics())
             .chain(self.invalid_sidebar_bounds_diagnostic())
+            .chain(self.ui.invalid_tab_number_start_diagnostic())
             .collect()
     }
 
@@ -138,6 +139,36 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn valid_tab_number_start_produces_no_diagnostic() {
+        for start in ["0", "1"] {
+            let config: Config =
+                toml::from_str(&format!("[ui]\ntab_number_start = {start}\n")).unwrap();
+            assert!(
+                config.collect_diagnostics().is_empty(),
+                "tab_number_start = {start} should be accepted"
+            );
+            assert_eq!(config.ui.tab_number_start(), start.parse::<u8>().unwrap());
+        }
+    }
+
+    #[test]
+    fn out_of_range_tab_number_start_is_reported_and_falls_back() {
+        // `herdr config check` and the startup warning both read
+        // `collect_diagnostics`, so the validation has to live there rather
+        // than only on the runtime apply path.
+        let config: Config = toml::from_str("[ui]\ntab_number_start = 7\n").unwrap();
+
+        let diagnostics = config.collect_diagnostics();
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("ui.tab_number_start")),
+            "expected a tab_number_start diagnostic, got {diagnostics:?}"
+        );
+        assert_eq!(config.ui.tab_number_start(), 1);
+    }
 
     #[test]
     fn local_keybindings_profile_includes_defaults_and_excludes_commands() {
