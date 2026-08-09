@@ -264,7 +264,30 @@ impl App {
         }
     }
 
+    /// Whether the `keys.extended_keys` opt-in forces report-all in the current mode.
+    ///
+    /// The opt-in is a floor rather than a one-shot push: without it, focusing
+    /// away from a pane whose own app requested Kitty's report-all-keys mode
+    /// (back to a plain shell) would silently reset the host terminal below the
+    /// user's setting, and their `shift+space`-style prefix would stop working.
+    ///
+    /// It is still withheld in herdr's own free-text modes. Report-all is
+    /// pushed without `REPORT_ASSOCIATED_TEXT`, so forcing it there would break
+    /// IME composition in the rename/goto/search fields. `wants_ascii_input()`
+    /// is the existing allowlist of command/navigation modes (which already
+    /// hold the input source on ASCII, so report-all costs nothing extra
+    /// there); `Mode::Terminal` is added because that is where the prefix key
+    /// has to stay recognizable.
+    fn extended_keys_force_report_all(&self) -> bool {
+        self.extended_keys
+            && (self.state.mode == Mode::Terminal || self.state.mode.wants_ascii_input())
+    }
+
     pub(crate) fn host_keyboard_report_all_requested(&self) -> bool {
+        if self.extended_keys_force_report_all() {
+            return true;
+        }
+
         if self.state.popup_pane.is_none()
             && matches!(self.state.mode, Mode::Prefix | Mode::Navigate)
         {
@@ -2070,5 +2093,53 @@ mod tests {
             pane_scroll_offset(&app, pane_id),
             info.inner_rect.height as usize
         );
+    }
+
+    #[test]
+    fn host_keyboard_report_all_is_false_by_default_in_plain_terminal_mode() {
+        let app = app_for_mouse_test();
+        assert!(!app.extended_keys);
+        assert!(!app.host_keyboard_report_all_requested());
+    }
+
+    #[test]
+    fn extended_keys_opt_in_forces_host_keyboard_report_all_in_command_modes() {
+        let mut app = app_for_mouse_test();
+        app.extended_keys = true;
+
+        // Terminal mode: the focused pane requested no enhancement of its own,
+        // so without the opt-in this would be false.
+        app.state.mode = Mode::Terminal;
+        assert!(app.host_keyboard_report_all_requested());
+
+        for mode in [Mode::Prefix, Mode::Navigate, Mode::Copy, Mode::GlobalMenu] {
+            app.state.mode = mode;
+            assert!(
+                app.host_keyboard_report_all_requested(),
+                "expected report-all in {mode:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn extended_keys_opt_in_is_withheld_in_free_text_modes() {
+        let mut app = app_for_mouse_test();
+        app.extended_keys = true;
+
+        // Report-all is pushed without REPORT_ASSOCIATED_TEXT, so herdr's own
+        // text fields must keep normal text input for IME composition.
+        for mode in [
+            Mode::RenameWorkspace,
+            Mode::RenameTab,
+            Mode::RenamePane,
+            Mode::Settings,
+            Mode::NewLinkedWorktree,
+        ] {
+            app.state.mode = mode;
+            assert!(
+                !app.host_keyboard_report_all_requested(),
+                "expected no report-all in {mode:?}"
+            );
+        }
     }
 }

@@ -112,7 +112,14 @@ impl Config {
         if let Some(prefix_diag) = prefix_diag {
             Err(std::iter::once(prefix_diag).chain(keybind_diags).collect())
         } else {
-            Ok((LiveKeybindConfig { prefix, keybinds }, keybind_diags))
+            Ok((
+                LiveKeybindConfig {
+                    prefix,
+                    keybinds,
+                    extended_keys: self.keys.extended_keys,
+                },
+                keybind_diags,
+            ))
         }
     }
 

@@ -140,6 +140,7 @@ pub struct App {
     pub(crate) session_save_thread: Option<std::thread::JoinHandle<()>>,
     pub(crate) detached_custom_command_children: Vec<std::process::Child>,
     pub(crate) persist_pane_history: bool,
+    pub(crate) extended_keys: bool,
     pub(crate) last_render_at: Option<Instant>,
     pub(crate) input_leases: input::InputLeaseTable,
     pub render_notify: Arc<Notify>,
@@ -765,6 +766,7 @@ impl App {
             selection_autoscroll_deadline: None,
             selection_highlight_clear_deadline: None,
             persist_pane_history: config.experimental.pane_history,
+            extended_keys: config.keys.extended_keys,
             last_render_at: None,
             input_leases: input::InputLeaseTable::default(),
             api_rx,
@@ -1395,6 +1397,7 @@ impl App {
             |section: &str| invalid_sections.iter().any(|invalid| invalid == section);
 
         if !invalid_section("keys") {
+            self.extended_keys = config.keys.extended_keys;
             match config.live_keybinds_with_diagnostics() {
                 Ok((live, keybind_diagnostics)) => {
                     self.state.prefix_code = live.prefix.0;

@@ -216,10 +216,16 @@ impl From<KeyEvent> for TerminalKey {
 pub(crate) const KITTY_FLAG_REPORT_ALL_KEYS: u16 = 0b0000_1000;
 
 #[cfg(not(windows))]
-pub fn ime_compatible_keyboard_enhancement_flags() -> KeyboardEnhancementFlags {
-    KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+pub fn ime_compatible_keyboard_enhancement_flags(
+    report_all_keys: bool,
+) -> KeyboardEnhancementFlags {
+    let mut flags = KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
         | KeyboardEnhancementFlags::REPORT_EVENT_TYPES
-        | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
+        | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS;
+    if report_all_keys {
+        flags |= KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES;
+    }
+    flags
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -419,13 +425,24 @@ mod tests {
 
     #[cfg(not(windows))]
     #[test]
-    fn keyboard_enhancement_flags_stay_ime_compatible() {
-        let flags = ime_compatible_keyboard_enhancement_flags();
+    fn keyboard_enhancement_flags_stay_ime_compatible_by_default() {
+        let flags = ime_compatible_keyboard_enhancement_flags(false);
 
         assert!(flags.contains(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES));
         assert!(flags.contains(KeyboardEnhancementFlags::REPORT_EVENT_TYPES));
         assert!(flags.contains(KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS));
         assert!(!flags.contains(KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn keyboard_enhancement_flags_opt_in_to_report_all_keys() {
+        let flags = ime_compatible_keyboard_enhancement_flags(true);
+
+        assert!(flags.contains(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES));
+        assert!(flags.contains(KeyboardEnhancementFlags::REPORT_EVENT_TYPES));
+        assert!(flags.contains(KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS));
+        assert!(flags.contains(KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES));
     }
 
     #[test]

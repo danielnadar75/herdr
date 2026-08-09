@@ -22,10 +22,7 @@ pub(crate) fn set_host_kitty_keyboard_report_all<W: Write>(
     writer: &mut W,
     report_all_keys: bool,
 ) -> io::Result<()> {
-    let mut flags = crate::input::ime_compatible_keyboard_enhancement_flags();
-    if report_all_keys {
-        flags |= crossterm::event::KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES;
-    }
+    let flags = crate::input::ime_compatible_keyboard_enhancement_flags(report_all_keys);
     // Older iTerm2 releases clear the keyboard stack on SET, so a later pop
     // cannot restore the host state. Replace only Herdr's top entry instead.
     crossterm::execute!(

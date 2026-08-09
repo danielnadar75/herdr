@@ -335,6 +335,12 @@ pub struct LoadedConfig {
 pub struct KeysConfig {
     /// Prefix key to enter prefix mode (e.g. "ctrl+b", "f12", "esc").
     pub prefix: String,
+    /// Request the terminal's full Kitty keyboard "report all keys as escape
+    /// codes" enhancement, so modifier+printable chords (e.g. "shift+space")
+    /// that would otherwise be indistinguishable from the bare key can be
+    /// used as a prefix or binding. Off by default because it can interfere
+    /// with CJK IME composition. Equivalent to tmux's `extended-keys on`.
+    pub extended_keys: bool,
     /// Open keybinding help. Default: "prefix+?"
     pub help: BindingConfig,
     /// Open settings. Default: "prefix+s"
@@ -462,6 +468,8 @@ pub struct KeysConfig {
 pub(crate) struct KeysConfigOverlay {
     #[serde(skip_serializing_if = "Option::is_none")]
     prefix: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    extended_keys: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     help: Option<BindingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -598,6 +606,7 @@ impl<'de> Deserialize<'de> for KeysConfig {
         }
 
         apply_field!(prefix);
+        apply_field!(extended_keys);
         apply_field!(help);
         apply_field!(settings);
         apply_field!(new_workspace);
@@ -700,6 +709,7 @@ impl KeysConfig {
         }
 
         profile.prefix = Some(self.prefix.clone());
+        copy_user_field!(extended_keys);
         copy_effective_action_field!(help, keybinds.help);
         copy_effective_action_field!(settings, keybinds.settings);
         copy_effective_action_field!(new_workspace, keybinds.new_workspace);
@@ -992,6 +1002,7 @@ impl Default for KeysConfig {
     fn default() -> Self {
         Self {
             prefix: "ctrl+b".into(),
+            extended_keys: false,
             help: BindingConfig::one("prefix+?"),
             settings: BindingConfig::one("prefix+s"),
             new_workspace: BindingConfig::one("prefix+shift+n"),

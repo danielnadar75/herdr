@@ -218,6 +218,12 @@
           "description": "Prefix key to enter prefix mode (e.g. \"ctrl+b\", \"f12\", \"esc\")."
         },
         {
+          "key": "keys.extended_keys",
+          "type": "boolean",
+          "default": "false",
+          "description": "Ask the terminal to report all keys as escape codes (Kitty keyboard protocol), so modifier+printable chords like \"shift+space\" can be told apart from the bare key and used as a prefix or binding. Can interfere with CJK IME composition."
+        },
+        {
           "key": "keys.help",
           "type": "keybinding",
           "default": "\"prefix+?\"",
