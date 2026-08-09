@@ -1467,7 +1467,6 @@ impl App {
                 self.state.tab_bar_position = config.ui.tab_bar_position;
                 self.state.show_tab_numbers = config.ui.show_tab_numbers;
                 self.state.tab_number_start = config.ui.tab_number_start();
-                diagnostics.extend(config.ui.invalid_tab_number_start_diagnostic());
                 self.state.agent_panel_sort =
                     agent_panel_sort_from_config(config.ui.agent_panel_sort);
                 self.state.status_indicators = config.ui.status_indicators;
