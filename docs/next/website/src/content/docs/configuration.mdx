@@ -149,6 +149,16 @@ resize_pane_right = "ctrl+shift+alt+right"
 
 Key strings accept plain keys, modifier combinations such as `ctrl+a`, `shift+n`, `alt+1`, `cmd+k`, and special keys such as `enter`, `tab`, `esc`, `left`, `right`, `up`, and `down`. Named punctuation such as `minus`, `comma`, `ampersand`, `plus`, and `backtick` is also accepted. Plain direct printable keys such as `n` are unsafe because they intercept typing; use `prefix+n` unless you intentionally want a direct binding. The `navigate_workspace_*` and `navigate_pane_*` fields are navigate-mode-only and may use plain keys such as `j` or `k`; they must not use `prefix+`, `esc`, `enter`, `tab`, `shift+tab`, `left`, `right`, or unmodified `1` through `9`. Left and right arrows are permanent aliases for pane-left and pane-right navigation. These navigate-mode shortcuts are independent from general action bindings such as `focus_pane_down = "prefix+j"`; when both use the same key, the navigate-mode shortcut wins while navigate mode is open. Alt, Cmd/Super, and punctuation with modifiers depend on your terminal and tmux settings.
 
+Some chords combine a modifier with a printable key, such as `shift+space` or `ctrl+shift+p`. Terminals send those as the bare character by default, so Herdr cannot tell `shift+space` apart from Space. Set `extended_keys` to ask the terminal to report every key as an escape code (the Kitty keyboard protocol's report-all-keys mode, equivalent to tmux's `set -s extended-keys on`):
+
+```toml
+[keys]
+extended_keys = true
+prefix = "shift+space"
+```
+
+It is off by default because report-all-keys can interfere with CJK IME composition. Herdr already withholds it while you are typing into its own text fields, such as the rename and search boxes. Your terminal must support the Kitty keyboard protocol; Ghostty, kitty, WezTerm, foot, and recent Alacritty do. When the client connects with `HERDR_REMOTE_KEYBINDINGS=local`, this setting travels with the rest of your local `[keys]` profile, so the remote session honors your local terminal's setting.
+
 If you have old custom keybindings and want the new defaults, run `herdr config reset-keys`. Herdr backs up `config.toml`, removes `[keys]` and `[[keys.command]]`, and uses built-in v2 defaults after restart or `herdr server reload-config`.
 
 ## Indexed jumps

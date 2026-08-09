@@ -14,6 +14,10 @@ pub type KeyCombo = (KeyCode, KeyModifiers);
 pub struct LiveKeybindConfig {
     pub prefix: KeyCombo,
     pub keybinds: Keybinds,
+    /// Whether the profile owner opted into Kitty's report-all-keys mode. It
+    /// travels with the keybindings because the prefix/bindings it makes
+    /// reachable are meaningless without it.
+    pub extended_keys: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]

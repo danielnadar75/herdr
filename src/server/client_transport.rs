@@ -416,6 +416,7 @@ fn parse_client_keybindings(
             Ok(Some(Box::new(crate::config::LiveKeybindConfig {
                 prefix: config.prefix_key(),
                 keybinds: config.keybinds(),
+                extended_keys: config.keys.extended_keys,
             })))
         }
     }
@@ -1254,6 +1255,27 @@ command = "lazygit"
             .iter()
             .any(|binding| binding.label == "prefix+t"));
         assert!(keybindings.keybinds.custom_commands.is_empty());
+        assert!(!keybindings.extended_keys);
+    }
+
+    #[test]
+    fn parse_client_keybindings_carries_extended_keys_opt_in() {
+        // The client's host terminal is the one that has to report the extra
+        // keys, so a client-local profile must be able to turn it on for a
+        // server whose own config leaves it off.
+        let keybindings = parse_client_keybindings(ClientKeybindings::Local {
+            keys_toml: r#"
+[keys]
+extended_keys = true
+prefix = "shift+space"
+"#
+            .to_owned(),
+        })
+        .expect("valid client keybindings")
+        .expect("local profile");
+
+        assert!(keybindings.extended_keys);
+        assert_eq!(keybindings.prefix.0, crossterm::event::KeyCode::Char(' '));
     }
 
     #[test]

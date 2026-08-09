@@ -20,15 +20,17 @@ const NESTED_HERDR_MESSAGES: [&str; 6] = [
 ];
 
 #[cfg(not(windows))]
-fn push_keyboard_enhancement_flags() -> io::Result<()> {
+fn push_keyboard_enhancement_flags(extended_keys: bool) -> io::Result<()> {
     execute!(
         io::stdout(),
-        PushKeyboardEnhancementFlags(crate::input::ime_compatible_keyboard_enhancement_flags())
+        PushKeyboardEnhancementFlags(crate::input::ime_compatible_keyboard_enhancement_flags(
+            extended_keys
+        ))
     )
 }
 
 #[cfg(windows)]
-fn push_keyboard_enhancement_flags() -> io::Result<()> {
+fn push_keyboard_enhancement_flags(_extended_keys: bool) -> io::Result<()> {
     Ok(())
 }
 
@@ -171,6 +173,13 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Most reliable direct bindings are ctrl+letter, function keys, and explicit modified chords.
 # alt+..., cmd/super, and punctuation-with-modifiers may depend on your terminal/tmux setup.
 # prefix = "ctrl+b"
+
+# Request the terminal's Kitty "report all keys as escape codes" keyboard
+# enhancement so modifier+printable chords (e.g. "shift+space") can be
+# disambiguated from the bare key and used for prefix/bindings. Off by
+# default: it can interfere with CJK IME composition. Equivalent to tmux's
+# `set -s extended-keys on`.
+# extended_keys = false
 
 # Prefix-mode actions
 # help = "prefix+?"
@@ -850,7 +859,7 @@ fn main() -> io::Result<()> {
         }
         execute!(io::stdout(), EnableBracketedPaste, EnableFocusChange)?;
         set_host_color_scheme_reports(true)?;
-        push_keyboard_enhancement_flags()?;
+        push_keyboard_enhancement_flags(config.keys.extended_keys)?;
 
         // Some hosts do not honor Kitty keyboard enhancement pushes for
         // Shift+Enter. Enable xterm modifyOtherKeys only on hosts where we

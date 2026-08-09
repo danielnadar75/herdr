@@ -75,6 +75,8 @@ Every binding is configurable, including the prefix itself:
 prefix = "ctrl+a"
 ```
 
+A prefix that combines a modifier with a printable key, such as `shift+space`, also needs `extended_keys = true` so the terminal reports it as a distinct key rather than a plain Space. See [extended keys](/docs/configuration/#keybindings).
+
 ## Going prefix-free
 
 You can bind Herdr actions to direct chords that need no prefix at all. The hard part is knowing which chords are safe, because terminals, shells, and desktop environments already own most of the keyboard.

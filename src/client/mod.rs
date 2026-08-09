@@ -62,6 +62,8 @@ struct ClientLoopConfig {
     host_cursor: crate::config::HostCursorModeConfig,
     kitty_graphics_enabled: bool,
     mouse_capture_active: bool,
+    /// Whether terminal setup already put the host into Kitty report-all-keys mode.
+    keyboard_report_all_active: bool,
     remote_image_paste_key: Option<(crossterm::event::KeyCode, crossterm::event::KeyModifiers)>,
 }
 
@@ -342,8 +344,8 @@ impl From<protocol::FramingError> for ClientError {
 /// Sets up the terminal for client mode (raw mode, optional mouse, keyboard enhancements).
 ///
 /// Returns a guard that restores the terminal when dropped.
-fn setup_terminal(mouse_capture: bool) -> io::Result<TerminalGuard> {
-    setup_terminal_with_capabilities(true, mouse_capture)
+fn setup_terminal(mouse_capture: bool, extended_keys: bool) -> io::Result<TerminalGuard> {
+    setup_terminal_with_capabilities(true, mouse_capture, extended_keys)
 }
 
 /// Sets up a direct attach terminal.
@@ -351,18 +353,24 @@ fn setup_terminal(mouse_capture: bool) -> io::Result<TerminalGuard> {
 /// Direct attach forwards stdin to the attached PTY. It enables mouse capture
 /// so wheel events can drive the attached viewport or be forwarded to child
 /// programs that requested mouse input.
+///
+/// It deliberately pushes no keyboard enhancement flags, including the
+/// `keys.extended_keys` opt-in: the attached child negotiates its own Kitty
+/// keyboard protocol level, and herdr reads no keys of its own here.
 fn setup_direct_attach_terminal() -> io::Result<TerminalGuard> {
-    setup_terminal_with_capabilities(false, true)
+    setup_terminal_with_capabilities(false, true, false)
 }
 
 fn setup_terminal_with_capabilities(
     enable_client_protocols: bool,
     mouse_capture: bool,
+    extended_keys: bool,
 ) -> io::Result<TerminalGuard> {
     ratatui::init();
     crate::terminal_modes::clear_host_mouse_reporting(&mut io::stdout())?;
     let host_color_scheme_reports =
         should_enable_host_color_scheme_reports(enable_client_protocols);
+    let mut pushed_keyboard_report_all = false;
 
     if enable_client_protocols {
         if mouse_capture {
@@ -374,7 +382,7 @@ fn setup_terminal_with_capabilities(
         if host_color_scheme_reports {
             write_host_color_scheme_report_mode(&mut io::stdout(), true)?;
         }
-        push_keyboard_enhancement_flags()?;
+        pushed_keyboard_report_all = push_keyboard_enhancement_flags(extended_keys)?;
     } else {
         if should_query_host_terminal_theme() {
             write_host_color_scheme_report_mode(&mut io::stdout(), false)?;
@@ -421,6 +429,7 @@ fn setup_terminal_with_capabilities(
     Ok(TerminalGuard {
         reset_modify_other_keys: modify_other_keys_mode.is_some(),
         reset_host_color_scheme_reports: host_color_scheme_reports,
+        pushed_keyboard_report_all,
         #[cfg(windows)]
         restore_windows_input_mode: windows_virtual_terminal_input.restore_mode,
     })
@@ -434,6 +443,10 @@ fn should_enable_host_color_scheme_reports(enable_client_protocols: bool) -> boo
 struct TerminalGuard {
     reset_modify_other_keys: bool,
     reset_host_color_scheme_reports: bool,
+    /// Whether setup pushed Kitty's report-all-keys flag onto the host stack.
+    /// Seeds the client's tracked host state so the server's first
+    /// `KittyKeyboardReportAll` is not mistaken for a no-op.
+    pushed_keyboard_report_all: bool,
     #[cfg(windows)]
     restore_windows_input_mode: Option<u32>,
 }
@@ -615,17 +628,22 @@ fn restore_terminal_state(
     }
 }
 
+/// Pushes herdr's keyboard enhancement flags. Returns whether the pushed set
+/// includes Kitty's report-all-keys mode.
 #[cfg(not(windows))]
-fn push_keyboard_enhancement_flags() -> io::Result<()> {
+fn push_keyboard_enhancement_flags(extended_keys: bool) -> io::Result<bool> {
     execute!(
         io::stdout(),
-        PushKeyboardEnhancementFlags(crate::input::ime_compatible_keyboard_enhancement_flags())
-    )
+        PushKeyboardEnhancementFlags(crate::input::ime_compatible_keyboard_enhancement_flags(
+            extended_keys
+        ))
+    )?;
+    Ok(extended_keys)
 }
 
 #[cfg(windows)]
-fn push_keyboard_enhancement_flags() -> io::Result<()> {
-    Ok(())
+fn push_keyboard_enhancement_flags(_extended_keys: bool) -> io::Result<bool> {
+    Ok(false)
 }
 
 #[cfg(not(windows))]
@@ -1203,13 +1221,14 @@ fn run_client_with_mode(
     let remote_image_paste_key = client_remote_image_paste_key(&loaded_config.config);
     let kitty_graphics_enabled =
         loaded_config.config.experimental.kitty_graphics && !direct_attach_requested;
-    let loop_config = ClientLoopConfig {
+    let mut loop_config = ClientLoopConfig {
         sound_config: loaded_config.config.ui.sound,
         mouse_scroll_lines,
         redraw_on_focus_gained,
         host_cursor,
         kitty_graphics_enabled,
         mouse_capture_active: mouse_capture,
+        keyboard_report_all_active: false,
         remote_image_paste_key,
     };
 
@@ -1267,12 +1286,13 @@ fn run_client_with_mode(
     let terminal_guard = if direct_attach {
         setup_direct_attach_terminal()
     } else {
-        setup_terminal(mouse_capture)
+        setup_terminal(mouse_capture, loaded_config.config.keys.extended_keys)
     }
     .map_err(|err| {
         eprintln!("herdr: failed to set up terminal: {err}");
         err
     })?;
+    loop_config.keyboard_report_all_active = terminal_guard.pushed_keyboard_report_all;
 
     // Install a panic hook to restore the terminal on panic (same as monolithic).
     let panic_resets_modify_other_keys = terminal_guard.reset_modify_other_keys;
@@ -1373,7 +1393,7 @@ async fn run_client_loop(
     let mut state = ClientState {
         blit_encoder: render_ansi::BlitEncoder::new(),
         mouse_capture_active: config.mouse_capture_active,
-        keyboard_report_all_active: false,
+        keyboard_report_all_active: config.keyboard_report_all_active,
         reported_size: (cols, rows),
         sound_config: config.sound_config,
         kitty_graphics_enabled: config.kitty_graphics_enabled,

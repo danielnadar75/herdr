@@ -9250,6 +9250,58 @@ next_tab = ""
     }
 
     #[tokio::test]
+    async fn client_extended_keys_opt_in_survives_leaving_prefix_mode() {
+        // Regression: the client pushes report-all from its own config, but the
+        // ongoing host mode is server-driven. When the server's own config left
+        // `extended_keys` off, the first return to Terminal mode used to stream
+        // `enabled: false` and permanently break a `shift+space`-style prefix.
+        let mut server = test_headless_server();
+        assert!(!server.server_keybindings.extended_keys);
+
+        let local_config: crate::config::Config = toml::from_str(
+            r#"
+[keys]
+extended_keys = true
+"#,
+        )
+        .unwrap();
+        let (writer, control_rx, _render_rx) = test_client_writer();
+        assert!(server.handle_server_event(ServerEvent::ClientConnected {
+            client_id: 1,
+            cols: 80,
+            rows: 24,
+            cell_width_px: 0,
+            cell_height_px: 0,
+            render_encoding: RenderEncoding::SemanticFrame,
+            keybindings: Some(Box::new(local_config.live_keybinds().unwrap())),
+            direct_attach_requested: false,
+            direct_graphics: false,
+            writer,
+        }));
+        assert!(server.app.extended_keys);
+
+        server.app.state.mode = crate::app::Mode::Prefix;
+        server.stream_host_keyboard_enhancement_flags();
+        server.app.state.mode = crate::app::Mode::Terminal;
+        server.stream_host_keyboard_enhancement_flags();
+
+        // The only value ever streamed for this client is `true`: the mode
+        // round-trip is a no-op instead of a downgrade.
+        while let Ok(message) = control_rx.recv_timeout(Duration::from_millis(100)) {
+            if let ServerMessage::KittyKeyboardReportAll { enabled } = read_server_message(message)
+            {
+                assert!(enabled, "client opt-in must not be downgraded");
+            }
+        }
+
+        // A client that did not opt in still follows the server's modes.
+        server.clients.remove(&1);
+        server.foreground_client_id = None;
+        server.sync_foreground_client_state();
+        assert!(!server.app.extended_keys);
+    }
+
+    #[tokio::test]
     async fn focused_report_all_pane_updates_headless_client_keyboard_flags() {
         let mut server = test_headless_server();
         let (client_tx, client_control_rx, _client_rx) = test_client_writer();
