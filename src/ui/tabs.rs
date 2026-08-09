@@ -1,6 +1,7 @@
 use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
+    text::{Line, Span},
     widgets::Paragraph,
     Frame,
 };
@@ -22,24 +23,103 @@ pub(crate) struct TabBarView {
     pub new_tab_hit_area: Rect,
 }
 
-fn tab_width(ws: &crate::workspace::Workspace, tab_idx: usize) -> u16 {
-    display_width_u16(&tab_chrome_label(ws, tab_idx))
+/// Tab-number presentation, resolved from `[ui]` config.
+///
+/// Threaded through layout because the number widens the label, and tab
+/// widths drive hit areas, scrolling, and drop indicators.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TabNumbering {
+    pub(crate) enabled: bool,
+    pub(crate) start: u8,
+}
+
+impl TabNumbering {
+    #[cfg(test)]
+    pub(crate) fn disabled() -> Self {
+        Self {
+            enabled: false,
+            start: 1,
+        }
+    }
+
+    fn label_for(&self, tab_idx: usize) -> Option<String> {
+        self.enabled
+            .then(|| (tab_idx + usize::from(self.start)).to_string())
+    }
+}
+
+impl From<&AppState> for TabNumbering {
+    fn from(app: &AppState) -> Self {
+        Self {
+            enabled: app.show_tab_numbers,
+            start: app.tab_number_start,
+        }
+    }
+}
+
+/// A tab's chrome label split into its jump number and its name.
+///
+/// An auto-named tab's name already *is* its position, so numbering it would
+/// render "1 1". In that case the number carries the label alone and `name`
+/// stays empty.
+struct TabChromeLabel {
+    number: Option<String>,
+    name: String,
+}
+
+impl TabChromeLabel {
+    fn width(&self) -> u16 {
+        let number = self
+            .number
+            .as_deref()
+            .map(|number| display_width_u16(number).saturating_add(1))
+            .unwrap_or(0);
+        number.saturating_add(display_width_u16(&self.name))
+    }
+}
+
+fn tab_width(ws: &crate::workspace::Workspace, tab_idx: usize, numbering: TabNumbering) -> u16 {
+    tab_chrome_label(ws, tab_idx, numbering)
+        .width()
         .saturating_add(4)
         .max(MIN_TAB_WIDTH)
 }
 
-fn tab_chrome_label(ws: &crate::workspace::Workspace, tab_idx: usize) -> String {
-    let name = ws
-        .tab_display_name(tab_idx)
-        .unwrap_or_else(|| (tab_idx + 1).to_string());
-    if ws.tabs.get(tab_idx).is_some_and(|tab| tab.zoomed) {
-        format!("{name} Z")
+fn tab_chrome_label(
+    ws: &crate::workspace::Workspace,
+    tab_idx: usize,
+    numbering: TabNumbering,
+) -> TabChromeLabel {
+    let auto_named = ws
+        .tabs
+        .get(tab_idx)
+        .is_none_or(crate::workspace::Tab::is_auto_named);
+    let number = numbering.label_for(tab_idx);
+    let name = match (&number, auto_named) {
+        // The number replaces the positional fallback rather than repeating it.
+        (Some(_), true) => String::new(),
+        _ => ws
+            .tab_display_name(tab_idx)
+            .unwrap_or_else(|| (tab_idx + 1).to_string()),
+    };
+    let name = if ws.tabs.get(tab_idx).is_some_and(|tab| tab.zoomed) {
+        if name.is_empty() {
+            "Z".to_string()
+        } else {
+            format!("{name} Z")
+        }
     } else {
         name
-    }
+    };
+    TabChromeLabel { number, name }
 }
 
-fn layout_tab_hit_areas(ws: &crate::workspace::Workspace, area: Rect, scroll: usize) -> Vec<Rect> {
+fn layout_tab_hit_areas(
+    ws: &crate::workspace::Workspace,
+    area: Rect,
+    scroll: usize,
+    numbering: TabNumbering,
+) -> Vec<Rect> {
     let mut rects = vec![Rect::default(); ws.tabs.len()];
     if area.width == 0 || area.height == 0 {
         return rects;
@@ -51,7 +131,7 @@ fn layout_tab_hit_areas(ws: &crate::workspace::Workspace, area: Rect, scroll: us
         if x >= right {
             break;
         }
-        let desired = tab_width(ws, idx);
+        let desired = tab_width(ws, idx, numbering);
         let remaining = right.saturating_sub(x);
         let width = desired.min(remaining).max(1);
         *rect = Rect::new(x, area.y, width, 1);
@@ -60,13 +140,17 @@ fn layout_tab_hit_areas(ws: &crate::workspace::Workspace, area: Rect, scroll: us
     rects
 }
 
-fn centered_tab_scroll(ws: &crate::workspace::Workspace, area: Rect) -> usize {
+fn centered_tab_scroll(
+    ws: &crate::workspace::Workspace,
+    area: Rect,
+    numbering: TabNumbering,
+) -> usize {
     let mut best_scroll = ws.active_tab;
     let mut best_distance = u16::MAX;
     let viewport_center = area.x.saturating_mul(2).saturating_add(area.width);
 
     for scroll in 0..=ws.active_tab {
-        let rects = layout_tab_hit_areas(ws, area, scroll);
+        let rects = layout_tab_hit_areas(ws, area, scroll, numbering);
         let Some(active_rect) = rects.get(ws.active_tab).copied() else {
             continue;
         };
@@ -97,10 +181,10 @@ fn trailing_tab_controls_x(tab_hit_areas: &[Rect], fallback_x: u16) -> u16 {
         .unwrap_or(fallback_x)
 }
 
-fn max_tab_scroll(ws: &crate::workspace::Workspace, area: Rect) -> usize {
+fn max_tab_scroll(ws: &crate::workspace::Workspace, area: Rect, numbering: TabNumbering) -> usize {
     (0..ws.tabs.len())
         .find(|&scroll| {
-            layout_tab_hit_areas(ws, area, scroll)
+            layout_tab_hit_areas(ws, area, scroll, numbering)
                 .last()
                 .is_some_and(|rect| rect.width > 0)
         })
@@ -113,21 +197,22 @@ pub(crate) fn compute_tab_bar_view(
     current_scroll: usize,
     follow_active: bool,
     mouse_chrome: bool,
+    numbering: TabNumbering,
 ) -> TabBarView {
     if area.width == 0 || area.height == 0 {
         return TabBarView::default();
     }
 
     if !mouse_chrome {
-        let max_scroll = max_tab_scroll(ws, area);
+        let max_scroll = max_tab_scroll(ws, area, numbering);
         let scroll = if follow_active {
-            centered_tab_scroll(ws, area).min(max_scroll)
+            centered_tab_scroll(ws, area, numbering).min(max_scroll)
         } else {
             current_scroll.min(max_scroll)
         };
         return TabBarView {
             scroll,
-            tab_hit_areas: layout_tab_hit_areas(ws, area, scroll),
+            tab_hit_areas: layout_tab_hit_areas(ws, area, scroll, numbering),
             scroll_left_hit_area: Rect::default(),
             scroll_right_hit_area: Rect::default(),
             new_tab_hit_area: Rect::default(),
@@ -141,7 +226,7 @@ pub(crate) fn compute_tab_bar_view(
         area.width.saturating_sub(NEW_TAB_WIDTH),
         area.height,
     );
-    let all_tabs = layout_tab_hit_areas(ws, all_tabs_area, 0);
+    let all_tabs = layout_tab_hit_areas(ws, all_tabs_area, 0, numbering);
     let overflow = all_tabs.iter().any(|rect| rect.width == 0);
     if !overflow {
         let new_tab_x = trailing_tab_controls_x(&all_tabs, area.x);
@@ -171,13 +256,13 @@ pub(crate) fn compute_tab_bar_view(
         area.height,
     );
 
-    let max_scroll = max_tab_scroll(ws, tab_area);
+    let max_scroll = max_tab_scroll(ws, tab_area, numbering);
     let scroll = if follow_active {
-        centered_tab_scroll(ws, tab_area).min(max_scroll)
+        centered_tab_scroll(ws, tab_area, numbering).min(max_scroll)
     } else {
         current_scroll.min(max_scroll)
     };
-    let tab_hit_areas = layout_tab_hit_areas(ws, tab_area, scroll);
+    let tab_hit_areas = layout_tab_hit_areas(ws, tab_area, scroll, numbering);
     let trailing_x = trailing_tab_controls_x(&tab_hit_areas, tab_area_x).min(tab_area_right);
     let right_hit_area = Rect::new(
         trailing_x,
@@ -258,6 +343,7 @@ pub(super) fn render_tab_bar(app: &AppState, frame: &mut Frame, area: Rect) {
         return;
     };
     let p = &app.palette;
+    let numbering = TabNumbering::from(app);
 
     frame.render_widget(
         Paragraph::new(" ".repeat(area.width as usize)).style(Style::default().bg(p.panel_bg)),
@@ -336,10 +422,34 @@ pub(super) fn render_tab_bar(app: &AppState, frame: &mut Frame, area: Rect) {
         } else {
             Style::default().fg(p.overlay1).bg(p.surface0)
         };
+        // The number reuses the theme accent so it reads as a jump target. On
+        // the active tab the accent is already the background, so bold on the
+        // existing contrast foreground is what separates it there.
+        let number_style = if active {
+            style.add_modifier(Modifier::BOLD)
+        } else {
+            style.fg(p.accent).add_modifier(Modifier::BOLD)
+        };
         let width = rect.width as usize;
-        let name = tab_chrome_label(ws, idx);
-        let text = format!(" {:width$}", name, width = width.saturating_sub(1));
-        frame.render_widget(Paragraph::new(text).style(style), rect);
+        let label = tab_chrome_label(ws, idx, numbering);
+        let mut spans = vec![Span::styled(" ", style)];
+        let mut used = 1usize;
+        if let Some(number) = &label.number {
+            spans.push(Span::styled(number.clone(), number_style));
+            used = used.saturating_add(display_width_u16(number) as usize);
+            if !label.name.is_empty() {
+                spans.push(Span::styled(" ", style));
+                used = used.saturating_add(1);
+            }
+        }
+        if !label.name.is_empty() {
+            spans.push(Span::styled(label.name.clone(), style));
+            used = used.saturating_add(display_width_u16(&label.name) as usize);
+        }
+        if let Some(padding) = width.checked_sub(used).filter(|pad| *pad > 0) {
+            spans.push(Span::styled(" ".repeat(padding), style));
+        }
+        frame.render_widget(Paragraph::new(Line::from(spans)).style(style), rect);
     }
 
     if let Some(crate::app::state::DragState {
@@ -419,7 +529,14 @@ mod tests {
         app.workspaces = vec![ws];
         app.active = Some(0);
         app.view.tab_bar_rect = Rect::new(0, 0, 30, 1);
-        let view = compute_tab_bar_view(&app.workspaces[0], app.view.tab_bar_rect, 0, true, false);
+        let view = compute_tab_bar_view(
+            &app.workspaces[0],
+            app.view.tab_bar_rect,
+            0,
+            true,
+            false,
+            TabNumbering::disabled(),
+        );
         app.view.tab_hit_areas = view.tab_hit_areas;
 
         let backend = TestBackend::new(30, 1);
@@ -446,7 +563,14 @@ mod tests {
         app.workspaces = vec![ws];
         app.active = Some(0);
         app.view.tab_bar_rect = Rect::new(0, 0, 30, 1);
-        let view = compute_tab_bar_view(&app.workspaces[0], app.view.tab_bar_rect, 0, true, false);
+        let view = compute_tab_bar_view(
+            &app.workspaces[0],
+            app.view.tab_bar_rect,
+            0,
+            true,
+            false,
+            TabNumbering::disabled(),
+        );
         app.view.tab_hit_areas = view.tab_hit_areas;
 
         let backend = TestBackend::new(30, 1);
@@ -469,7 +593,125 @@ mod tests {
         ws.tabs[0].set_custom_name("abcdefgh".into());
         ws.tabs[0].zoomed = true;
 
-        assert_eq!(tab_width(&ws, 0), 14);
+        assert_eq!(tab_width(&ws, 0, TabNumbering::disabled()), 14);
+    }
+
+    fn numbering(start: u8) -> TabNumbering {
+        TabNumbering {
+            enabled: true,
+            start,
+        }
+    }
+
+    #[test]
+    fn tab_numbers_are_off_by_default() {
+        let mut ws = Workspace::test_new("test");
+        ws.tabs[0].set_custom_name("build".into());
+
+        let label = tab_chrome_label(&ws, 0, TabNumbering::disabled());
+        assert_eq!(label.number, None);
+        assert_eq!(label.name, "build");
+    }
+
+    #[test]
+    fn tab_number_prefixes_a_custom_name() {
+        let mut ws = Workspace::test_new("test");
+        ws.tabs[0].set_custom_name("build".into());
+
+        let label = tab_chrome_label(&ws, 0, numbering(1));
+        assert_eq!(label.number.as_deref(), Some("1"));
+        assert_eq!(label.name, "build");
+    }
+
+    #[test]
+    fn tab_number_start_zero_shifts_the_first_tab() {
+        let ws = Workspace::test_new("test");
+
+        assert_eq!(
+            tab_chrome_label(&ws, 0, numbering(0)).number.as_deref(),
+            Some("0")
+        );
+        assert_eq!(
+            tab_chrome_label(&ws, 0, numbering(1)).number.as_deref(),
+            Some("1")
+        );
+    }
+
+    #[test]
+    fn auto_named_tab_shows_the_number_once() {
+        // The positional fallback label *is* the number, so numbering an
+        // auto-named tab must not render "1 1".
+        let ws = Workspace::test_new("test");
+
+        let label = tab_chrome_label(&ws, 0, numbering(1));
+        assert_eq!(label.number.as_deref(), Some("1"));
+        assert_eq!(label.name, "");
+        assert_eq!(label.width(), display_width_u16("1") + 1);
+    }
+
+    #[test]
+    fn zoom_marker_survives_numbering_on_an_auto_named_tab() {
+        let mut ws = Workspace::test_new("test");
+        ws.tabs[0].zoomed = true;
+
+        let label = tab_chrome_label(&ws, 0, numbering(1));
+        assert_eq!(label.number.as_deref(), Some("1"));
+        assert_eq!(label.name, "Z");
+    }
+
+    #[test]
+    fn tab_number_widens_the_tab_for_layout() {
+        let mut ws = Workspace::test_new("test");
+        ws.tabs[0].set_custom_name("abcdefgh".into());
+
+        let plain = tab_width(&ws, 0, TabNumbering::disabled());
+        let numbered = tab_width(&ws, 0, numbering(1));
+        // "1" plus its separating space.
+        assert_eq!(numbered, plain + 2);
+    }
+
+    #[test]
+    fn tab_number_is_rendered_in_the_accent_color() {
+        let mut app = AppState::test_new();
+        let mut ws = Workspace::test_new("test");
+        ws.tabs[0].set_custom_name("build".into());
+        // Focus a second tab so tab 0 renders with the inactive style, where
+        // the accent foreground is visible against the panel background.
+        ws.test_add_tab(Some("test"));
+        ws.active_tab = 1;
+
+        app.active = Some(0);
+        app.show_tab_numbers = true;
+        app.tab_number_start = 1;
+        app.workspaces = vec![ws];
+        app.view.tab_bar_rect = Rect::new(0, 0, 40, 1);
+        let view = compute_tab_bar_view(
+            &app.workspaces[0],
+            app.view.tab_bar_rect,
+            0,
+            true,
+            false,
+            TabNumbering::from(&app),
+        );
+        app.view.tab_hit_areas = view.tab_hit_areas;
+
+        let backend = TestBackend::new(40, 1);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_tab_bar(&app, frame, app.view.tab_bar_rect))
+            .unwrap();
+
+        let tab_rect = app.view.tab_hit_areas[0];
+        let buffer = terminal.backend().buffer();
+        let number_cell = &buffer[(tab_rect.x + 1, tab_rect.y)];
+        let name_cell = &buffer[(tab_rect.x + 3, tab_rect.y)];
+
+        assert_eq!(number_cell.symbol(), "1");
+        assert_eq!(number_cell.style().fg, Some(app.palette.accent));
+        assert!(number_cell.style().add_modifier.contains(Modifier::BOLD));
+
+        assert_eq!(name_cell.symbol(), "b");
+        assert_ne!(name_cell.style().fg, Some(app.palette.accent));
     }
 
     #[test]
@@ -478,7 +720,7 @@ mod tests {
         ws.tabs[0].set_custom_name("提交 herdr 的反馈".into());
 
         assert_eq!(
-            tab_width(&ws, 0),
+            tab_width(&ws, 0, TabNumbering::disabled()),
             display_width_u16("提交 herdr 的反馈") + 4
         );
     }
@@ -492,7 +734,14 @@ mod tests {
         app.active = Some(0);
         app.workspaces = vec![ws];
         app.view.tab_bar_rect = Rect::new(0, 0, 30, 1);
-        let view = compute_tab_bar_view(&app.workspaces[0], app.view.tab_bar_rect, 0, true, false);
+        let view = compute_tab_bar_view(
+            &app.workspaces[0],
+            app.view.tab_bar_rect,
+            0,
+            true,
+            false,
+            TabNumbering::disabled(),
+        );
         app.view.tab_hit_areas = view.tab_hit_areas;
 
         let backend = TestBackend::new(30, 1);

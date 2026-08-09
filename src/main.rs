@@ -341,6 +341,15 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Desktop tab row placement: "top" or "bottom".
 # tab_bar_position = "top"
 
+# Show each tab's jump number in the tab row, even when the tab has a custom
+# name. The number is drawn in the theme accent color and matches the
+# `keys.switch_tab` bindings (prefix+1..9 by default). Tabs without a custom
+# name already display their number, so this only changes named tabs.
+# show_tab_numbers = false
+
+# First tab's jump number. Only 0 or 1 are accepted.
+# tab_number_start = 1
+
 # Agent panel ordering: "spaces" (grouped by space) or "priority" (attention queue).
 # "workspaces" is accepted as an alias for "spaces".
 # agent_panel_sort = "spaces"

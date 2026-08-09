@@ -719,6 +719,18 @@
           "description": "Hide the tab row when the workspace has one tab."
         },
         {
+          "key": "ui.show_tab_numbers",
+          "type": "boolean",
+          "default": "false",
+          "description": "Show each tab's jump number in the tab row, even when the tab has a custom name. The number is drawn in the theme accent color and matches the `keys.switch_tab` indexed bindings."
+        },
+        {
+          "key": "ui.tab_number_start",
+          "type": "integer",
+          "default": "1",
+          "description": "First tab's jump number when `show_tab_numbers` is on. Only 0 or 1 are accepted; other values fall back to 1 with a startup warning."
+        },
+        {
           "key": "ui.tab_bar_position",
           "type": "enum",
           "default": "\"top\"",
