@@ -95,7 +95,17 @@ impl ClientShellState {
         matches!(
             self.mode,
             ClientShellMode::Prefix | ClientShellMode::Navigate
-        )
+        ) || self.extended_keys_report_all_requested()
+    }
+
+    /// `keys.extended_keys` keeps report-all on during pane input so a
+    /// modifier+printable prefix such as shift+space reaches the keymap
+    /// instead of arriving as the bare character. Overlays own their own text
+    /// entry and keep the default mode.
+    fn extended_keys_report_all_requested(&self) -> bool {
+        self.config.extended_keys
+            && self.mode == ClientShellMode::Terminal
+            && self.overlay.is_none()
     }
 
     pub(crate) fn set_host_reports_key_releases(&mut self, reports: bool) {

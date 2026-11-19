@@ -337,6 +337,12 @@ pub struct KeysConfig {
     /// Prefix key(s) to enter prefix mode (e.g. "ctrl+b", "f12", "esc", or an
     /// array to accept several).
     pub prefix: BindingConfig,
+    /// Ask the host terminal to report every key as a Kitty escape code while
+    /// pane input or a Herdr key mode is active, so modifier+printable chords
+    /// such as "shift+space" stay distinguishable from the bare key and can be
+    /// used as a prefix or binding. Local to the client's own terminal. Off by
+    /// default. Equivalent to tmux's `extended-keys on`.
+    pub extended_keys: bool,
     /// Open keybinding help. Default: "prefix+?"
     pub help: BindingConfig,
     /// Open settings. Default: "prefix+s"
@@ -474,6 +480,8 @@ pub(crate) struct KeysConfigOverlay {
     /// new clients merge it into the effective prefix list.
     #[serde(skip_serializing_if = "Option::is_none")]
     extra_prefixes: Option<BindingConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    extended_keys: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     help: Option<BindingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -644,6 +652,7 @@ impl<'de> Deserialize<'de> for KeysConfig {
             };
         }
 
+        apply_field!(extended_keys);
         apply_field!(help);
         apply_field!(settings);
         apply_field!(new_workspace);
@@ -1121,6 +1130,7 @@ impl Default for KeysConfig {
     fn default() -> Self {
         Self {
             prefix: BindingConfig::one("ctrl+b"),
+            extended_keys: false,
             help: BindingConfig::one("prefix+?"),
             settings: BindingConfig::one("prefix+s"),
             new_workspace: BindingConfig::one("prefix+shift+n"),

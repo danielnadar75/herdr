@@ -488,6 +488,12 @@
           "description": "Prefix key(s) to enter prefix mode (e.g. \"ctrl+b\", \"f12\", \"esc\", or an array to accept several)."
         },
         {
+          "key": "keys.extended_keys",
+          "type": "boolean",
+          "default": "false",
+          "description": "Ask the client's terminal to report every key as a Kitty escape code during pane input, so modifier+printable chords like \"shift+space\" can be told apart from the bare key and used as a prefix or binding."
+        },
+        {
           "key": "keys.help",
           "type": "keybinding",
           "default": "\"prefix+?\"",

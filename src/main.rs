@@ -143,6 +143,12 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # alt+..., cmd/super, and punctuation-with-modifiers may depend on your terminal/tmux setup.
 # prefix = "ctrl+b"
 
+# Ask the terminal to report every key as a Kitty escape code during pane input,
+# so modifier+printable chords such as "shift+space" can be told apart from the
+# bare key and used as a prefix or binding. Equivalent to tmux's
+# `set -s extended-keys on`. Off by default.
+# extended_keys = false
+
 # Prefix-mode actions
 # help = "prefix+?"
 # settings = "prefix+s"

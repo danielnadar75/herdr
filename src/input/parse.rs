@@ -1375,4 +1375,16 @@ mod tests {
         let corpus = include_str!("../../tests/fixtures/linux_terminal_variants.tsv");
         assert_fixture_corpus_parses(corpus);
     }
+
+    #[test]
+    fn parse_kitty_shift_space_preserves_shift_modifier() {
+        // Captured from Ghostty with Kitty report-all active: Shift+Space must
+        // stay distinguishable from a bare Space so it can be a prefix.
+        let key = parse_terminal_key_sequence("\x1b[32;2u").expect("parses");
+        assert_eq!(key.code, KeyCode::Char(' '));
+        assert_eq!(key.modifiers, KeyModifiers::SHIFT);
+
+        let combo = crate::config::parse_key_combo("shift+space").expect("parses");
+        assert!(crate::config::terminal_key_matches_combo(&key, combo));
+    }
 }
