@@ -527,3 +527,122 @@ fn close_confirmation_error_becomes_client_owned_overlay_and_stable_workspace_cl
             if params.workspace_id == "ws_1" && !params.close_group
     ));
 }
+
+fn numbered_tabs_state(ui: &str, tabs: &[(&str, bool, bool)]) -> ClientShellState {
+    let config = toml::from_str::<Config>(&format!("[ui]\n{ui}\n")).expect("ui config");
+    let mut projected = snapshot();
+    projected.tabs = tabs
+        .iter()
+        .enumerate()
+        .map(|(index, (label, custom_label, zoomed))| ClientShellTab {
+            tab_id: format!("tab_{}", index + 1),
+            workspace_id: "ws_1".into(),
+            number: index + 1,
+            label: (*label).into(),
+            custom_label: *custom_label,
+            zoomed: *zoomed,
+            focused: index == 0,
+            agent_status: AgentStatus::Idle,
+        })
+        .collect();
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
+    state.set_snapshot(Box::new(projected));
+    state.set_pane_surface(surface());
+    state
+}
+
+fn tab_text(state: &mut ClientShellState, tab_id: &str) -> String {
+    let frame = state.compose(106, 20).expect("tab bar frame");
+    let rect = state
+        .hits
+        .tabs
+        .iter()
+        .find(|(_, id)| id == tab_id)
+        .expect("tab hit")
+        .0;
+    frame_rows(&frame)[rect.y as usize]
+        .chars()
+        .skip(rect.x as usize)
+        .take(rect.width as usize)
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
+#[test]
+fn tab_numbers_are_off_by_default() {
+    let mut state = numbered_tabs_state("", &[("1", false, false), ("beta", true, false)]);
+    assert_eq!(tab_text(&mut state, "tab_2"), "beta");
+}
+
+#[test]
+fn tab_number_prefixes_a_custom_name() {
+    let mut state = numbered_tabs_state(
+        "show_tab_numbers = true",
+        &[("1", false, false), ("beta", true, false)],
+    );
+    assert_eq!(tab_text(&mut state, "tab_2"), "2 beta");
+}
+
+#[test]
+fn tab_number_start_zero_shifts_the_first_tab() {
+    let mut state = numbered_tabs_state(
+        "show_tab_numbers = true\ntab_number_start = 0",
+        &[("alpha", true, false), ("beta", true, false)],
+    );
+    assert_eq!(tab_text(&mut state, "tab_1"), "0 alpha");
+    assert_eq!(tab_text(&mut state, "tab_2"), "1 beta");
+}
+
+#[test]
+fn auto_named_tab_shows_the_number_once() {
+    let mut state = numbered_tabs_state(
+        "show_tab_numbers = true\ntab_number_start = 0",
+        &[("1", false, false)],
+    );
+    assert_eq!(tab_text(&mut state, "tab_1"), "0");
+}
+
+#[test]
+fn zoom_marker_survives_numbering_on_an_auto_named_tab() {
+    let mut state = numbered_tabs_state("show_tab_numbers = true", &[("1", false, true)]);
+    assert_eq!(tab_text(&mut state, "tab_1"), "1 Z");
+}
+
+#[test]
+fn tab_number_widens_the_tab_for_layout() {
+    let name = "a fairly long tab name";
+    let mut plain = numbered_tabs_state("", &[(name, true, false)]);
+    let mut numbered = numbered_tabs_state("show_tab_numbers = true", &[(name, true, false)]);
+    plain.compose(106, 20).expect("plain frame");
+    numbered.compose(106, 20).expect("numbered frame");
+    assert_eq!(
+        numbered.hits.tabs[0].0.width,
+        plain.hits.tabs[0].0.width + 2,
+        "the number and its space must be part of the tab's width"
+    );
+}
+
+#[test]
+fn inactive_tab_number_is_rendered_in_the_accent_color() {
+    let mut state = numbered_tabs_state(
+        "show_tab_numbers = true",
+        &[("alpha", true, false), ("beta", true, false)],
+    );
+    let accent = state.config.palette.accent;
+    let frame = state.compose(106, 20).expect("tab bar frame");
+    let rect = state
+        .hits
+        .tabs
+        .iter()
+        .find(|(_, id)| id == "tab_2")
+        .expect("inactive tab")
+        .0;
+    let buffer = frame.to_ratatui_buffer().expect("tab bar buffer");
+    let (x, y) = cell_symbol_position(&frame, rect, "2 beta");
+    let number = buffer.cell((x, y)).expect("number cell");
+    assert_eq!(number.fg, accent);
+    assert!(number.modifier.contains(Modifier::BOLD));
+    let name = buffer.cell((x + 2, y)).expect("name cell");
+    assert_ne!(name.fg, accent, "only the number takes the accent");
+}
