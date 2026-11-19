@@ -143,6 +143,7 @@ impl ClientShellConfig {
                     keybinds: config.keybinds(),
                 }),
             local_keys: config.keys.clone(),
+            extended_keys: config.keys.extended_keys,
             keybinding_source: ClientShellKeybindingSource::Local,
             prompt_new_tab_name: config.ui.prompt_new_tab_name,
             prompt_new_workspace_name: config.ui.prompt_new_workspace_name,
@@ -315,6 +316,11 @@ impl ClientShellConfig {
         let invalid_section =
             |section: &str| invalid_sections.iter().any(|invalid| invalid == section);
 
+        if !invalid_section("keys") {
+            // The host terminal belongs to this client, so the opt-in follows
+            // the local config even when keybindings come from the endpoint.
+            self.extended_keys = config.keys.extended_keys;
+        }
         if !invalid_section("keys")
             && self.keybinding_source != ClientShellKeybindingSource::Endpoint
         {

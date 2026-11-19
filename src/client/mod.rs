@@ -523,6 +523,9 @@ async fn run_client_loop(
             );
         }
     }
+    // A config-requested mode must be live before the first key, or the first
+    // shift+space prefix arrives as a plain space.
+    sync_client_shell_keyboard_report_all(&mut state)?;
     let host_mouse_capture_active = Arc::new(AtomicBool::new(state.mouse_capture_active));
     // Cell size reported by the host terminal, packed as width<<32 | height.
     // Zero means the host has not reported one.

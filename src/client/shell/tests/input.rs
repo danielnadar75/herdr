@@ -1051,3 +1051,77 @@ fn committed_text_still_reaches_a_report_all_pane_as_text() {
     let after = state.handle_input_bytes("\u{3042}".as_bytes());
     assert_eq!(pane_text_commits(&after).concat(), "\u{3042}");
 }
+
+fn extended_keys_config(prefix: &str) -> Config {
+    toml::from_str::<Config>(&format!(
+        "[keys]\nextended_keys = true\nprefix = \"{prefix}\"\n"
+    ))
+    .expect("extended keys config")
+}
+
+#[test]
+fn host_report_all_stays_off_during_pane_input_by_default() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot()));
+    assert_eq!(state.mode, ClientShellMode::Terminal);
+    assert!(!state.host_keyboard_report_all_requested());
+}
+
+#[test]
+fn extended_keys_requests_host_report_all_during_pane_input() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&extended_keys_config(
+        "ctrl+b",
+    )));
+    state.set_snapshot(Box::new(snapshot()));
+    assert_eq!(state.mode, ClientShellMode::Terminal);
+    assert!(state.host_keyboard_report_all_requested());
+}
+
+#[test]
+fn extended_keys_leaves_overlay_text_entry_in_the_default_mode() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&extended_keys_config(
+        "ctrl+b",
+    )));
+    state.overlay = Some(ClientShellOverlay::Rename(ClientRenameOverlay {
+        title: "rename pane",
+        input: TextEditor::new("name", true),
+        target: ClientRenameTarget::Pane {
+            pane_id: "pane_1".into(),
+        },
+    }));
+    assert!(!state.host_keyboard_report_all_requested());
+}
+
+#[test]
+fn extended_keys_follows_a_live_config_reload() {
+    let mut shell = ClientShellConfig::from_config(&Config::default());
+    shell.apply_live_config(&extended_keys_config("ctrl+b"), &[], &[]);
+    assert!(shell.extended_keys);
+    shell.apply_live_config(&Config::default(), &[], &["keys".to_owned()]);
+    assert!(
+        shell.extended_keys,
+        "an invalid [keys] section keeps the opt-in"
+    );
+    shell.apply_live_config(&Config::default(), &[], &[]);
+    assert!(!shell.extended_keys);
+}
+
+#[test]
+fn reported_shift_space_enters_a_shift_space_prefix() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&extended_keys_config(
+        "shift+space",
+    )));
+    state.set_host_reports_key_releases(true);
+    state.set_host_reports_all_keys(true);
+    state.set_snapshot(Box::new(snapshot()));
+    state.set_pane_surface(surface());
+
+    // Bare Space is still typing.
+    let space = state.handle_input_bytes(b"\x1b[32u");
+    assert_eq!(state.mode, ClientShellMode::Terminal);
+    assert!(!space.requests.is_empty(), "bare space must reach the pane");
+
+    // Shift+Space as Ghostty reports it with report-all active.
+    let _ = state.handle_input_bytes(b"\x1b[32;2u");
+    assert_eq!(state.mode, ClientShellMode::Prefix);
+}
