@@ -21,12 +21,15 @@ pub(crate) fn render_tab_bar(
         .iter()
         .filter(|tab| Some(tab.workspace_id.as_str()) == snapshot.focused_workspace_id.as_deref())
         .collect::<Vec<_>>();
-    let desired_widths = tabs
+    let numbering = TabNumbering::from(config);
+    let labels = tabs
         .iter()
-        .map(|tab| {
-            let label = tab_label(tab);
-            display_width(&label).saturating_add(4).max(MIN_TAB_WIDTH)
-        })
+        .enumerate()
+        .map(|(index, tab)| tab_label(tab, numbering.label_for(index)))
+        .collect::<Vec<_>>();
+    let desired_widths = labels
+        .iter()
+        .map(|label| label.width().saturating_add(4).max(MIN_TAB_WIDTH))
         .collect::<Vec<_>>();
     let content = tab_bar_content_area(snapshot, area);
     let mouse_chrome = config.mouse_capture;
@@ -92,7 +95,8 @@ pub(crate) fn render_tab_bar(
     let mut first_visible = None;
     let mut last_visible = None;
     for (index, tab) in tabs.iter().enumerate().skip(*tab_scroll) {
-        let name = tab_label(tab);
+        let label = &labels[index];
+        let name = label.text();
         let desired = desired_widths[index];
         let remaining = tab_right.saturating_sub(x);
         let width = desired.min(remaining);
@@ -123,6 +127,23 @@ pub(crate) fn render_tab_bar(
             right_padding = padding.saturating_sub(left) as usize,
         );
         put_text(buffer, rect.x, rect.y, rect.width, &text, style);
+        if let Some(number) = &label.number {
+            // The focused tab's background is already the accent, so its number
+            // keeps the contrast foreground and gains weight instead.
+            let number_style = if tab.focused {
+                style.add_modifier(Modifier::BOLD)
+            } else {
+                style.fg(palette.accent).add_modifier(Modifier::BOLD)
+            };
+            put_text(
+                buffer,
+                rect.x.saturating_add(left),
+                rect.y,
+                rect.width.saturating_sub(left),
+                number,
+                number_style,
+            );
+        }
         hits.tabs.push((rect, tab.tab_id.clone()));
         first_visible.get_or_insert(index);
         last_visible = Some(index);
@@ -371,12 +392,64 @@ fn max_tab_scroll(widths: &[u16], available: u16) -> usize {
     start
 }
 
-fn tab_label(tab: &ClientShellTab) -> String {
-    if tab.zoomed {
-        format!("{} Z", tab.label)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TabNumbering {
+    enabled: bool,
+    start: u8,
+}
+
+impl TabNumbering {
+    /// Numbers follow position within the workspace, matching the jump keys,
+    /// not the stable public tab number.
+    fn label_for(self, index: usize) -> Option<String> {
+        self.enabled
+            .then(|| (index + usize::from(self.start)).to_string())
+    }
+}
+
+impl From<&ClientShellConfig> for TabNumbering {
+    fn from(config: &ClientShellConfig) -> Self {
+        Self {
+            enabled: config.show_tab_numbers,
+            start: config.tab_number_start,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TabLabel {
+    number: Option<String>,
+    name: String,
+}
+
+impl TabLabel {
+    fn text(&self) -> String {
+        match (&self.number, self.name.is_empty()) {
+            (Some(number), true) => number.clone(),
+            (Some(number), false) => format!("{number} {}", self.name),
+            (None, _) => self.name.clone(),
+        }
+    }
+
+    fn width(&self) -> u16 {
+        display_width(&self.text())
+    }
+}
+
+fn tab_label(tab: &ClientShellTab, number: Option<String>) -> TabLabel {
+    // An auto-named tab's label is already its position, so a jump number
+    // replaces it instead of rendering "1 1".
+    let name = if number.is_some() && !tab.custom_label {
+        String::new()
     } else {
         tab.label.clone()
-    }
+    };
+    let name = match (tab.zoomed, name.is_empty()) {
+        (false, _) => name,
+        (true, true) => "Z".to_string(),
+        (true, false) => format!("{name} Z"),
+    };
+    TabLabel { number, name }
 }
 
 #[cfg(test)]
